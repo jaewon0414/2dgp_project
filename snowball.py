@@ -1,9 +1,8 @@
-from pico2d import get_canvas_width
-
 import asset_loader
+import camera
 import game_framework
 import game_world
-from effects import Splash
+from effects import Splash, Puff
 from rules import GROUND_Y, THROW_SPEED_X, THROW_SPEED_Y, SNOWBALL_GRAVITY, SNOWBALL_RADIUS
 
 IMAGE_BALL_RADIUS = 19  # snowball.png 안에 그려진 눈덩이의 반지름
@@ -27,7 +26,7 @@ class Snowball:
 
         if self.y - self.radius <= GROUND_Y:
             self.burst()
-        elif not -50 < self.x < get_canvas_width() + 50:
+        elif not camera.on_screen(self.x, 100):
             game_world.remove_object(self)
 
     def burst(self):
@@ -36,11 +35,15 @@ class Snowball:
 
     def draw(self):
         size = self.image.w * self.radius / IMAGE_BALL_RADIUS
-        self.image.composite_draw(self.rot, '', self.x, self.y, size, size)
+        self.image.composite_draw(self.rot, '', camera.sx(self.x), self.y, size, size)
 
     def get_bb(self):
         return self.x - self.radius, self.y - self.radius, self.x + self.radius, self.y + self.radius
 
     def handle_collision(self, group, other):
-        if group == 'snowball:heater':
+        if group in ('snowball:heater', 'snowball:spirit'):
             self.burst()
+        elif group == 'snowball:fireball':
+            # 눈덩이와 불덩이가 부딪히면 둘 다 김이 되어 사라진다.
+            game_world.remove_object(self)
+            game_world.add_object(Puff(self.x, self.y, count=4, size=34), game_world.OBJECT)

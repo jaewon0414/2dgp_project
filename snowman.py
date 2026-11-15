@@ -7,18 +7,20 @@
 import math
 import random
 
-from pico2d import get_canvas_width, clamp
+from pico2d import clamp
 from sdl2 import (SDL_KEYDOWN, SDL_KEYUP, SDLK_LEFT, SDLK_RIGHT, SDLK_UP, SDLK_DOWN, SDLK_SPACE,
                   SDLK_1, SDLK_2, SDLK_3, SDLK_MINUS, SDLK_EQUALS)
 from transitions import Machine
 
 import asset_loader
+import camera
 import game_framework
 import game_world
-from effects import Drip
+from effects import Drip, Splash
 from rules import (PIXEL_PER_METER, GRAVITY_PPS2, GROUND_Y, kmph_to_pps,
                    MAX_SNOW, BIG_SNOW, MIDDLE_SNOW, SIZE_TABLE, ROLL_SPEED_RATE,
-                   THROW_COST, THROW_COOLDOWN, HEAT_MELT_PER_SEC, ROLL_RECOVER_PER_SEC)
+                   THROW_COST, THROW_COOLDOWN, HEAT_MELT_PER_SEC, ROLL_RECOVER_PER_SEC,
+                   FIREBALL_DAMAGE, HIT_INVINCIBLE_TIME)
 from snowball import Snowball
 
 STEP_LENGTH_PX = 90  # 걸을 때 한 번 통통 튀며 나아가는 거리(큰 눈사람 기준)
@@ -27,6 +29,7 @@ THROW_RELEASE = 0.55  # 던지는 동작의 이 비율쯤에서 눈덩이가 손
 DRIP_INTERVAL = 0.08  # 열 구역에서 물방울이 떨어지는 간격
 MELT_DURATION = 1.2  # 눈이 0 이 되어 녹아내리는 시간
 RESTART_DELAY = 2.0  # 녹기 시작해서 다시 시작하기까지의 시간
+KNOCKBACK_SPEED = 260  # 불덩이에 맞으면 밀려나는 처음 속도(px/s)
 
 # 파츠 이미지의 원래 크기를 기준으로 한 값
 BASE_SCALE = 0.62
@@ -196,6 +199,8 @@ class Snowman:
         self.in_heat = False  # 이번 프레임에 열 구역 안에 있었는지. 충돌 처리에서 켠다.
         self.drip_timer = 0.0
         self.melt_time = 0.0
+        self.invincible = 0.0  # 맞은 뒤 남은 무적 시간. 이 동안 깜빡인다.
+        self.knock_vx = 0.0  # 맞아서 밀려나는 속도
 
         self.body = asset_loader.image('body.png')
         self.body_shade = asset_loader.image('body_shade.png')
@@ -267,6 +272,16 @@ class Snowman:
 
     def melt_finished(self):
         return self.state == 'MELT' and self.melt_time >= RESTART_DELAY
+
+    def hit(self, damage, from_dir):
+        """공격에 맞는다. 눈 조각이 떨어져 나가고, 맞은 반대쪽으로 밀리고, 잠깐 무적이 된다."""
+        if self.invincible > 0 or self.state == 'MELT':
+            return
+        self.invincible = HIT_INVINCIBLE_TIME
+        self.knock_vx = from_dir * KNOCKBACK_SPEED
+        r = self.body_radius()
+        game_world.add_object(Splash(self.x, self.y + r * 1.4, count=9, power=1.3), game_world.OBJECT)
+        self.melt(damage)
 
     # 입력과 상태 전환
 
@@ -344,6 +359,8 @@ class Snowman:
             ball = Snowball(x, y, self.face, self.scale)
             game_world.add_object(ball, game_world.OBJECT)
             game_world.add_collision_pair('snowball:heater', ball, None)
+            game_world.add_collision_pair('snowball:spirit', ball, None)
+            game_world.add_collision_pair('snowball:fireball', ball, None)
         if self.throw_time >= THROW_DURATION:
             self.throw_time = -1.0
 
@@ -385,11 +402,15 @@ class Snowman:
         self.states[self.state].do(self)
         self.update_throw(dt)
 
+        self.invincible = max(0.0, self.invincible - dt)
+        self.x += self.knock_vx * dt
+        self.knock_vx *= max(0.0, 1 - dt * 8)  # 밀려나는 힘은 금방 사라진다.
+
         target = SIZE_TABLE[self.size_level()]['scale']
         self.scale += (target - self.scale) * min(1.0, dt * 8)
 
         margin = self.body_radius() + 20
-        self.x = clamp(margin, self.x, get_canvas_width() - margin)
+        self.x = clamp(margin, self.x, camera.stage_width - margin)
 
         moving = self.state not in ('IDLE', 'MELT')
         self.pot_rot += ((0.16 if moving else 0.0) - self.pot_rot) * min(1.0, dt * 8)
@@ -411,16 +432,20 @@ class Snowman:
             room = MAX_SNOW - self.snow
             if room > 0:
                 self.snow += other.give(min(ROLL_RECOVER_PER_SEC * dt, room))
+        elif group == 'snowman:fireball':
+            self.hit(FIREBALL_DAMAGE, 1 if other.vx > 0 else -1)
 
     # 그리기
 
     def place(self, image, lx, ly, rad=0.0, scale_x=1.0, scale_y=1.0, mirrored=False):
         """오른쪽을 본다고 가정한 위치(lx, ly)에 파츠를 그린다. 왼쪽을 보면 통째로 뒤집는다."""
         flip = 'h' if (self.face == -1) != mirrored else ''
-        image.composite_draw(rad * self.face, flip, self.x + lx * self.face, ly,
+        image.composite_draw(rad * self.face, flip, camera.sx(self.x + lx * self.face), ly,
                              image.w * scale_x, image.h * scale_y)
 
     def draw(self):
+        if self.invincible > 0 and int(self.invincible * 12) % 2 == 0:
+            return  # 맞은 뒤 무적인 동안 깜빡인다.
         pose = self.states[self.state].pose(self)
         if self.throw_time >= 0:
             pose.arm_front = throw_arm_angle(min(1.0, self.throw_time / THROW_DURATION))
@@ -445,7 +470,7 @@ class Snowman:
         # 그림자는 땅에 붙어 있고, 몸이 높이 뜰수록 작아진다.
         height = center_y - body_h - GROUND_Y
         shadow_k = k * max(0.5, 1.25 - height * 0.004)
-        self.shadow.draw(self.x, GROUND_Y + 2, self.shadow.w * shadow_k, self.shadow.h * shadow_k)
+        self.shadow.draw(camera.sx(self.x), GROUND_Y + 2, self.shadow.w * shadow_k, self.shadow.h * shadow_k)
 
         # 팔은 몸통보다 먼저 그려서 뿌리가 눈 속에 박힌 것처럼 보이게 한다.
         # 던질 때는 머리 뒤로 젖힌 팔이 가려지지 않도록 맨 마지막에 그린다.
@@ -464,7 +489,7 @@ class Snowman:
 
         self.place(self.body, 0, center_y, self.body_rot + tilt, k * squash_x, k * squash_y)
         # 그늘은 구를 때 돌지 않는다. 왼쪽을 봐도 빛은 그대로 왼쪽 위에서 오므로 뒤집지 않는다.
-        self.body_shade.composite_draw(0, '', self.x, center_y, self.body_shade.w * k * squash_x,
+        self.body_shade.composite_draw(0, '', camera.sx(self.x), center_y, self.body_shade.w * k * squash_x,
                                        self.body_shade.h * k * squash_y)
 
         hx, hy = rotated(head_shift, body_h + HEAD_RADIUS * head_k * 0.62)
