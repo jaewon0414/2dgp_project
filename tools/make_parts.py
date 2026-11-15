@@ -286,6 +286,115 @@ def make_shadow():
     canvas.save('shadow.png')
 
 
+IRON_LIGHT = (104, 98, 118)
+IRON_DARK = (54, 50, 66)
+FIRE_RED = (232, 82, 46)
+FIRE_ORANGE = (250, 150, 50)
+FIRE_YELLOW = (255, 228, 120)
+ICE = (188, 222, 248)
+
+
+def make_snowball():
+    s, c, r = 48, 24, 19
+    canvas = Canvas(s, s)
+    outlined(canvas, circle(c, c, r, 0.03, 2.0), snow_color(c, c, r), 3)
+    canvas.paint(circle(c - 7, c - 7, 4), (255, 255, 255), 0.8)
+    canvas.save('snowball.png')
+
+
+def make_heater(name, frozen):
+    """배가 불룩한 무쇠 난로. 위가 뚫려 있어 불꽃이 솟는다. frozen 이면 꺼지고 얼어붙은 모습."""
+    w, h = 150, 190
+    canvas = Canvas(w, h)
+    legs = union(stroke(((46, 168), (36, 184)), 6), stroke(((104, 168), (114, 184)), 6))
+    outlined(canvas, legs, IRON_DARK, 3)
+
+    belly = ellipse(75, 120, 58, 54)
+    neck = polygon(((34, 66), (116, 66), (126, 100), (24, 100)))
+    body = union(belly, neck)
+
+    def iron(x, y):
+        t = clamp01((x - 20) / 110)
+        base = mix(IRON_LIGHT, IRON_DARK, t)
+        if 40 < x - y * 0.18 < 50:
+            return mix(base, (170, 166, 186), 0.6)
+        return base
+
+    outlined(canvas, body, iron, 4)
+    lip = stroke(((20, 64), (130, 64)), 9)
+    outlined(canvas, lip, (82, 76, 96), 3)
+    canvas.paint(ellipse(75, 64, 46, 5), (110, 70, 60) if frozen else FIRE_ORANGE)
+
+    window = stroke(((62, 124), (88, 124)), 17)
+    if frozen:
+        outlined(canvas, window, (44, 54, 84), 3)
+    else:
+        def glow(x, y):
+            return mix(FIRE_YELLOW, FIRE_RED, clamp01((y - 108) / 34))
+        outlined(canvas, window, glow, 3)
+    for x in (66, 75, 84):
+        canvas.paint(stroke(((x, 108), (x, 140)), 1.6), INK, clip=window)
+    for x, y in ((36, 108), (114, 108), (44, 150), (106, 150)):
+        canvas.paint(circle(x, y, 3), INK)
+
+    if frozen:
+        # 서리가 덮이고, 눈이 소복이 쌓이고, 고드름이 매달린다.
+        canvas.paint(body, (210, 232, 252), 0.38)
+        for x0, x1, length in ((34, 46, 22), (58, 66, 14), (96, 106, 26), (118, 126, 12)):
+            outlined(canvas, polygon(((x0, 68), (x1, 68), ((x0 + x1) / 2, 68 + length))), ICE, 2)
+        cap = union(circle(36, 58, 14, 0.1, 1.0), circle(60, 52, 18, 0.1, 2.0), circle(88, 52, 17, 0.1, 3.0),
+                    circle(114, 58, 14, 0.1, 4.0), stroke(((24, 62), (126, 62)), 7))
+        outlined(canvas, cap, snow_color(75, 50, 50), 3)
+    canvas.save(name)
+
+
+def make_flame():
+    w, h = 90, 120
+    canvas = Canvas(w, h)
+    outer = union(stroke(((45, 88), (40, 36), (52, 6)), 30, 2), circle(45, 90, 28))
+    outlined(canvas, outer, lambda x, y: mix(FIRE_ORANGE, FIRE_RED, clamp01((y - 30) / 80)), 3)
+    canvas.paint(union(stroke(((45, 96), (42, 62), (49, 38)), 17, 2), circle(45, 98, 16)), FIRE_ORANGE)
+    canvas.paint(union(stroke(((45, 102), (44, 82), (47, 66)), 9, 1.5), circle(45, 104, 8)), FIRE_YELLOW)
+    canvas.save('flame.png')
+
+
+def make_heat():
+    """난로 열 구역에 겹쳐 그리는 아지랑이.
+
+    열의 세기는 구역 안 어디서나 같으므로 안쪽은 고르게 칠하고, 경계가 보이도록 가장자리에서만 빠르게 옅어진다.
+    """
+    w, h = 64, 256
+    canvas = Canvas(w, h)
+    for y in range(h):
+        for x in range(w):
+            side = clamp01((1.0 - abs(x + 0.5 - w / 2) / (w / 2)) / 0.12)
+            side = side * side * (3 - 2 * side)
+            low = ((y + 0.5) / h) ** 1.2
+            canvas.px[y * w + x] = [255, 136, 70, 0.36 * side * low]
+    canvas.save('heat.png')
+
+
+def make_snowfield():
+    """난로를 끈 자리에 생기는 눈밭. 아래쪽은 이미지 밖으로 이어져 외곽선이 생기지 않는다."""
+    w, h = 320, 56
+    canvas = Canvas(w, h)
+    bumps = [circle(x, h + r - 34 + dy, r, 0.05, x * 0.1) for x, r, dy in
+             ((40, 30, 8), (86, 40, 0), (140, 44, -4), (192, 42, -2), (244, 38, 2), (284, 28, 10))]
+    mound = union(*bumps)
+    outlined(canvas, mound, lambda x, y: mix(SNOW, SNOW_SHADOW, clamp01((y - 18) / 40)), 3)
+    for x, y in ((70, 30), (150, 22), (210, 28), (262, 36)):
+        canvas.paint(stroke(((x, y), (x + 9, y - 2)), 1.6), (170, 200, 236))
+    canvas.save('snowfield.png')
+
+
+def make_drop():
+    w, h = 16, 22
+    canvas = Canvas(w, h)
+    outlined(canvas, union(stroke(((8, 15), (8, 4)), 5, 1.2), circle(8, 15, 5)), (150, 200, 245), 1.5)
+    canvas.paint(circle(6.5, 14, 1.6), (230, 244, 255))
+    canvas.save('drop.png')
+
+
 def make_background():
     # 게임 화면(1280x720)과 같은 크기로 만든다. 땅은 아래쪽 96 픽셀이다.
     w, h = 1280, 720
@@ -319,6 +428,13 @@ def main():
     make_scarf_tail()
     make_shadow()
     make_background()
+    make_snowball()
+    make_heater('heater_on.png', frozen=False)
+    make_heater('heater_off.png', frozen=True)
+    make_flame()
+    make_heat()
+    make_snowfield()
+    make_drop()
 
 
 if __name__ == '__main__':

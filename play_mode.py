@@ -3,11 +3,11 @@ from pico2d import *
 import game_framework
 import game_world
 from background import Background
+from heater import Heater
 from hud import Hud
 from snowman import Snowman
 
 snowman = None
-hud = None
 
 
 def handle_events():
@@ -17,28 +17,43 @@ def handle_events():
         elif event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
             game_framework.quit()
         elif event.type == SDL_KEYDOWN and event.key == SDLK_F1:
-            hud.toggle()
+            Hud.toggle()
+        elif event.type == SDL_KEYDOWN and event.key == SDLK_r:
+            restart()
+            return
         else:
             snowman.handle_event(event)
 
 
 def init():
-    global snowman, hud
+    global snowman
 
     game_world.add_object(Background(), game_world.BACKGROUND)
 
-    snowman = Snowman()
+    # 2단계 확인용 장면: 왼쪽에서 출발해 오른쪽 난로를 끄고 눈밭에서 회복한다.
+    heater = Heater(1000)
+    game_world.add_object(heater, game_world.OBJECT)
+    game_world.add_object(heater.zone, game_world.GROUND)
+
+    snowman = Snowman(200)
     game_world.add_object(snowman, game_world.OBJECT)
 
-    hud = Hud(snowman)
-    game_world.add_object(hud, game_world.UI)
+    game_world.add_object(Hud(snowman), game_world.UI)
+
+    game_world.add_collision_pair('snowman:heat', snowman, heater.zone)
+    game_world.add_collision_pair('snowman:snowfield', snowman, None)
+    game_world.add_collision_pair('snowball:heater', None, heater)
 
 
 def finish():
-    global snowman, hud
+    global snowman
     game_world.clear()
     snowman = None
-    hud = None
+
+
+def restart():
+    finish()
+    init()
 
 
 def pause():
@@ -51,6 +66,9 @@ def resume():
 
 def update():
     game_world.update()
+    game_world.handle_collisions()
+    if snowman.melt_finished():
+        restart()
 
 
 def render():
