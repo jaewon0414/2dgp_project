@@ -71,7 +71,8 @@ def collide(a, b):
 
 
 def handle_collisions():
-    for group, (group_a, group_b) in collision_pairs.items():
+    # 충돌 처리 중에 새 그룹이 생길 수 있으므로(난로가 꺼지며 눈밭 그룹을 만드는 등) 목록을 복사해서 돈다.
+    for group, (group_a, group_b) in list(collision_pairs.items()):
         for a in group_a[:]:
             for b in group_b[:]:
                 # 앞의 충돌 처리에서 지워진 객체는 건너뛴다. (눈덩이 하나가 두 번 맞지 않게)

@@ -14,7 +14,8 @@ BANNER_TIME = 2.5  # 시작할 때 스테이지 이름을 보여 주는 시간
 
 
 class Hud:
-    visible = True  # 다시 시작해도 켜고 끈 상태가 유지되도록 클래스에 둔다.
+    # 개발용 정보는 처음엔 숨기고 F1 로 켠다. 다시 시작해도 켜고 끈 상태가 유지되도록 클래스에 둔다.
+    visible = False
 
     def __init__(self, snowman, stage_name=''):
         self.snowman = snowman
